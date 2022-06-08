@@ -1,0 +1,542 @@
+---
+title: "Cremella et al. 2022 - processing code"
+knit: (function(input_file, encoding) {
+    out_dir <- 'docs';
+    rmarkdown::render(input_file,
+      encoding=encoding,
+      output_file=file.path(dirname(input_file), out_dir, 'index.html'))})
+author: "Bruno Cremella"
+date: "06/06/2022"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# AQUATIC PARTICULATE ABSORPTION COEFFICIENT COMBINING EXTRACTION AND BLEACHING 
+# OPTIMIZED FOR INLAND WATERS
+
+## Cremella, B., Bélanger, S., and Huot, Y.
+Limnology and Oceanography: Methods, June 2022.
+<https://doi.org/10.1002/lom3.10497>
+
+This is the processing code for the corresponding L&O:M article.
+
+## 1	RAW DATA PROCESSING
+
+* Raw absorbances are loaded as matrices of n wavelength rows X m filters (filters named as lake ID underscore replicate). Filter properties are loaded too (as a matrix of n properties X m filters).   Properties include lake ID, replicate (A, B, or X for blanks), filtered volume and filtration area diameter. 
+* Deionized water blanks were filtered in random lakes, and were treated normally (no treatment, methanol treatment, and bleaching treatment measurements). Blanks are averaged and the resulting blank mean absorbance is subtracted to the corresponding batch of samples (one mean per treatment per year). 
+* Mean NIR absorption for null point correction was calculated between 750 and 800 nm (rows 1:50), since a hump potentially of long wavelength chlorophyll complexes that absorb in the 700-720 nm range (sometimes present in cyanobacteria) was found in some samples. 
+* Absorption coefficients are calculated according to Stramski et al. 2015 formula, using filtered volume and filter diameter from filter properties. Exponent was changed to 1 to account for negative absorption.
+
+First, load the matrices and filter properties
+```{r, eval=FALSE}
+#setwd("C:/Users/bruno/OneDrive - USherbrooke/PhD thesis analysis 2021/Extra.aPhy method subchapter/For github")
+#----Step 1 ---- Raw data processing-----
+#------Step 1.1: Raw data loading and preparation----
+wholepabs=read.csv2("whole.csv") #untreated PABS absorbances matrix 
+extracted=read.csv2("extracted.csv") #methanol treated absorbance matrix
+bleached=read.csv2("bleached.csv") # bleached treated absorbance matrix
+filterprops=read.csv2("properties.csv") #filter properties: filtered volume
+```
+Deionized water blanks were filtered in random lakes, and were treated normally (no treatment, methanol treatment, and bleaching treatment measurements). Blanks are averaged and the resulting blank mean absorbance is subtracted to the corresponding batch of samples (one mean per treatment per year). 
+```{r, eval=FALSE}
+#------Step 1.2: Field blank subtraction ----
+library(dplyr);library(janitor);library(inspectr)
+filterprops.fieldblanks=filterprops[,grepl("X",filterprops[3,])] 
+#row 3 contain replicate, select filters
+#row 9 contains sampling period (for Lake Pulse: year)
+wholepabs.fieldblanks=rbind(as.character(filterprops.fieldblanks[9,]),
+  wholepabs[,grepl("X",filterprops[3,])])
+#
+extracted.fieldblanks=rbind(as.character(filterprops.fieldblanks[9,]),
+ extracted[,grepl("X",filterprops[3,])])
+#
+bleached.fieldblanks=rbind(as.character(filterprops.fieldblanks[9,]),
+ bleached[,grepl("X",filterprops[3,])])
+#plots indicates that blanks average per year are ok
+#proceed to calculate mean blank per year per treatment
+mean.wholepabs.yearblank=wholepabs.fieldblanks%>%t%>%as.data.frame%>%
+  dplyr::rename(year=V1)%>%group_by(year)%>%mutate_all(funs(as.numeric))%>%
+  summarise_all(funs(mean),na.rm=T)%>%t%>%as.data.frame%>%
+  row_to_names(row_number = 1)
+mean.wholepabs.yearblank=cbind(wholepabs[,1],mean.wholepabs.yearblank)
+#
+mean.extracted.yearblank=extracted.fieldblanks%>%t%>%as.data.frame%>%
+  dplyr::rename(year=V1)%>%group_by(year)%>%mutate_all(funs(as.numeric))%>%
+  summarise_all(funs(mean),na.rm=T)%>%t%>%as.data.frame%>%
+  row_to_names(row_number = 1)
+mean.extracted.yearblank=cbind(wholepabs[,1],mean.extracted.yearblank)
+#
+mean.bleached.yearblank=bleached.fieldblanks%>%t%>%as.data.frame%>%
+  dplyr::rename(year=V1)%>%group_by(year)%>%mutate_all(funs(as.numeric))%>%
+  summarise_all(funs(mean),na.rm=T)%>%t%>%as.data.frame%>%
+  row_to_names(row_number = 1)
+mean.bleached.yearblank=cbind(wholepabs[,1],mean.bleached.yearblank)
+
+#Remove blank filters
+filterprops.nox=filterprops[,!grepl("X",filterprops[3,])] #row 3 is replicate
+wholepabs.nox=rbind(as.character(filterprops.nox[9,]),
+                    wholepabs[,!grepl("X",filterprops[3,])]) #row 9 is year
+extracted.nox=rbind(as.character(filterprops.nox[9,]),
+                    extracted[,!grepl("X",filterprops[3,])])
+bleached.nox=rbind(as.character(filterprops.nox[9,]),
+                   bleached[,!grepl("X",filterprops[3,])])
+#Blank Subtraction
+wholepabs.blankcor=data.frame(mapply(wholepabs.nox[-1,],FUN=as.numeric)-
+ mapply((mean.wholepabs.yearblank[,match(wholepabs.nox[1,],
+ names(mean.wholepabs.yearblank),nomatch=1)]),FUN=as.numeric))
+wholepabs.blankcor[,1]=wholepabs[,1]
+extracted.blankcor=data.frame(mapply(extracted.nox[-1,],FUN=as.numeric)-
+ mapply((mean.extracted.yearblank[,match(extracted.nox[1,],
+ names(mean.extracted.yearblank),nomatch=1)]),FUN=as.numeric))
+extracted.blankcor[,1]=extracted[,1]
+bleached.blankcor=data.frame(mapply(bleached.nox[-1,],FUN=as.numeric)-
+ mapply((mean.bleached.yearblank[,match(bleached.nox[1,],
+ names(mean.bleached.yearblank),nomatch=1)]),FUN=as.numeric))
+bleached.blankcor[,1]=bleached[,1]
+
+```
+Mean NIR absorption for null point correction was calculated between 750 and 800 nm (rows 1:50), since a hump potentially of long wavelength chlorophyll complexes that absorb in the 700-720 nm range (sometimes present in cyanobacteria) was found in some samples.  
+```{r, eval=FALSE}
+#----- Step 1.3 Pseudo-null point correction-----
+#CHECK THAT ALL FILTER HAVE VOLUME IN THEM, IF NOT CHANGE IT TO 999999
+#mean NIR was calculated between 750 and 800 (rows 1:50)
+filterprops.nox=rbind(filterprops.nox,c("NIR below 0",
+                                        rep(NA,n=(length(filterprops.nox)-1))))
+wholepabs.fix=wholepabs.blankcor
+for (i in (2:ncol((wholepabs.blankcor)))) {
+  if (mean(wholepabs.blankcor[1:50,i])<0) {wholepabs.fix[,i]= (wholepabs.blankcor[,i]-mean(wholepabs.blankcor[1:50,i])) 
+  filterprops.nox[10,i]="PABSNeg" }
+  else {(wholepabs.fix[,i]=wholepabs.blankcor[,i])
+    filterprops.nox[10,i]="PABSOK" } }
+extracted.fix=extracted.blankcor
+for (i in (2:length(names(extracted.blankcor)))) {
+  if(mean(extracted.blankcor[1:50,i])<0) {extracted.fix[,i]=(extracted.blankcor[,i]-mean(extracted.blankcor[1:50,i])) 
+  filterprops.nox[10,i]=paste(filterprops.nox[10,i], "ExtNeg",sep="_")}
+  else {extracted.fix[,i]=(extracted.blankcor[,i])
+  filterprops.nox[10,i]=paste(filterprops.nox[10,i], "ExtOK",sep="_")}}
+bleached.fix=bleached.blankcor
+for (i in (2:length(names(bleached.blankcor)))) {
+  if(mean(bleached.blankcor[1:50,i])<0) {bleached.fix[,i]=(bleached.blankcor[,i]-mean(bleached.blankcor[1:50,i])) 
+  filterprops.nox[10,i]=paste(filterprops.nox[10,i], "BleNeg",sep="_") }
+  else { bleached.fix[,i]=(bleached.blankcor[,i])
+  filterprops.nox[10,i]=paste(filterprops.nox[10,i], "BleOK",sep="_")     }}
+#filterprops.nox row 10 is the null point correction flag
+#unt. filters with  negative NIR 
+length(grep("PABSNeg",filterprops.nox[10,-1]))
+#post extraction filters with negative NIR
+length(grep("ExtNeg",filterprops.nox[10,-1]))
+#post bleached filters with negative NIR
+length(grep("BleNeg",filterprops.nox[10,-1]))
+#----- Step 1.4 NAP-ABS higher than PABS, pseudonull point correction-----
+filterprops.nox=rbind(filterprops.nox,c("higher NIR processed",
+                                        rep(NA,n=(length(filterprops.nox)-1))))
+#Differences between NIR absorption between treatments
+extracted.nirfix=extracted.fix
+differences.exnir=colMeans(extracted.fix[(1:50),])-
+  colMeans(wholepabs.fix[(1:50),])
+for (i in (2:ncol(extracted.fix))) {
+if (differences.exnir[i]>0) 
+{extracted.nirfix[,i]=  extracted.fix[,i]-as.numeric(differences.exnir[i])
+filterprops.nox[11,i]="ExtHigher"} # Extraction NIR is higher than untreated NIR
+else {extracted.nirfix[,i]=  extracted.fix[,i]
+filterprops.nox[11,i]="ExtOK"}   } # NIR is OK
+bleached.nirfix=bleached.fix
+differences.bnir=colMeans(bleached.fix[(1:50),])-
+  colMeans(extracted.fix[(1:50),])
+for (i in (2:ncol(bleached.fix))) {
+  if (differences.bnir[i]>0) 
+  {bleached.nirfix[,i]=  bleached.fix[,i]-as.numeric(differences.bnir[i])
+  filterprops.nox[11,i]=paste(filterprops.nox[11,i], "BleHigher",sep="_")  } 
+  # Bleached  NIR is higher than extracted  NIR
+  else {bleached.nirfix[,i]=  bleached.fix[,i]
+  filterprops.nox[11,i]=paste(filterprops.nox[11,i], "BleOK",sep="_")   }   } 
+# Bleached  NIR is OK
+```
+Absorption coefficients are calculated according to Stramski et al. 2015 formula, using filtered volume and filter diameter from filter properties. Exponent was changed to 1 to account for negative absorption.
+
+```{r, eval=FALSE}
+#----- Step 1.5 Absorption coefficient transformation ----
+#Stramski et al. 2015 pathlength amplification correction
+#For negative absorption, change the exponent to 1
+wholepabs.acoef=wholepabs.fix;wholepabs.acoef[,-1]<- NA
+for (i in (2:ncol(wholepabs.fix))) {
+ for (j in (1:nrow(wholepabs.fix))) {
+   wholepabs.acoef[j,i]= 
+  if(wholepabs.fix[j,i]<0) 
+    ((pi*((1e-3*as.numeric(filterprops.nox[4,i])/2)^2))*2.303*0.323*
+       wholepabs.fix[j,i])/(1e-6*as.numeric(filterprops.nox[5,i])) 
+  else  ((pi*((1e-3*as.numeric(filterprops.nox[4,i])/2)^2))*2.303*0.323*
+        (wholepabs.fix[j,i]^1.0867))/(1e-6*as.numeric(filterprops.nox[5,i])) }}
+
+extracted.acoef=extracted.nirfix;extracted.acoef[,-1]<- NA
+for (i in (2:ncol(extracted.nirfix))) {
+  for (j in (1:nrow(extracted.nirfix))) {
+    extracted.acoef[j,i]= 
+      if(extracted.nirfix[j,i]<0) 
+        ((pi*((1e-3*as.numeric(filterprops.nox[4,i])/2)^2))*2.303*0.323*
+           extracted.nirfix[j,i])/(1e-6*as.numeric(filterprops.nox[5,i])) 
+    else  ((pi*((1e-3*as.numeric(filterprops.nox[4,i])/2)^2))*2.303*0.323*
+    (extracted.nirfix[j,i]^1.0867))/(1e-6*as.numeric(filterprops.nox[5,i])) }}
+
+bleached.acoef=bleached.nirfix;bleached.acoef[,-1]<- NA
+for (i in (2:ncol(bleached.nirfix))) {
+  for (j in (1:nrow(bleached.nirfix))) {
+    bleached.acoef[j,i]= 
+      if(bleached.nirfix[j,i]<0) 
+        ((pi*((1e-3*as.numeric(filterprops.nox[4,i])/2)^2))*2.303*0.323*
+           bleached.nirfix[j,i])/(1e-6*as.numeric(filterprops.nox[5,i])) 
+    else  ((pi*((1e-3*as.numeric(filterprops.nox[4,i])/2)^2))*2.303*0.323*
+      (bleached.nirfix[j,i]^1.0867))/(1e-6*as.numeric(filterprops.nox[5,i])) }}
+
+#----- Step 1.6 Absorption coefficient export ----
+write.csv(wholepabs.acoef,"LP.wholepabs.acoef.csv")
+write.csv(extracted.acoef,"LP.extracted.acoef.csv")
+write.csv(bleached.acoef,"LP.bleached.acoef.csv")
+write.csv(filterprops.nox,"LP.filterprops.nox.csv")
+
+```
+
+## 2	PREPROCESSING AT THE REPLICATE LEVEL
+
+* The different fractions are calculated ( _a_^E^Phy extracted pigments, 
+_a_^E^NAP unextracted material, and _a_^U^ unextracted bleached material).  
+* A Savitzky-Golay filter was applied to the fractions to allow the 
+continuum removal function to be effective in spectral regions with low 
+signal/noise ratio.  
+* A correction for the unextracted chl a in  _a_^U^ was performed as:
+ + 1) Red peak isolation 650-750nm in  _a_^U^, with height at peak λ.
++ 2) Load metoh pure chlorophyll a spectrum from Taniguchi and Lindsey 2017  
+database (<https://doi.org/10.1111/php.13319>)
++ 3) Shift pure chla spectra and multiply peak height for peak _a_^U^.
+* Subtract unextracted chlorophyll a  from bleached pigments spectra.  
+* Continuum removal only on phycobilins absorbing spectral range.  
+
+First, load the matrices and filter properties
+```{r, eval=FALSE}
+#---Step 2 ---- Preprocessing at the replicate level-----
+#-------Step 2.1) ---- Raw data loading and preparation----
+if (!exists("wholepabs.acoef") ) {wholepabs.acoef.uv=
+  read.csv("LP.wholepabs.acoef.csv")[,-1]
+} else {wholepabs.acoef.uv=wholepabs.acoef}
+  if( !exists("extracted.acoef") )
+  {extracted.acoef.uv=read.csv("LP.extracted.acoef.csv")[,-1]
+} else {extracted.acoef.uv=extracted.acoef}
+if( !exists("bleached.acoef") )
+{bleached.acoef.uv=read.csv("LP.bleached.acoef.csv")[,-1]
+} else {bleached.acoef.uv=bleached.acoef}
+if( !exists("filterprops.nox") )
+{filterprops.nox=read.csv("LP.filterprops.nox.csv")[,-1]}
+
+library(dplyr);library(data.table);library(reshape);library(hydroGOF)
+library(inspectr);library(IDPmisc)
+#visible fraction
+wholepabs.acoef=wholepabs.acoef.uv[1:401,]
+extracted.acoef=extracted.acoef.uv[1:401,]
+bleached.acoef=bleached.acoef.uv[1:401,]
+#-------Step 2.2) ---- Calculate Differential Fractions ----
+extracpigments=(wholepabs.acoef-extracted.acoef)
+extracpigments[,1]=extracted.acoef[,1]
+bleachpigments=(extracted.acoef-bleached.acoef)
+bleachpigments[,1]=extracted.acoef[,1]
+totalpigments=(wholepabs.acoef-bleached.acoef)
+totalpigments[,1]=extracted.acoef[,1]
+```
+
+Savitzky-Golay filter was applied to the fractions to allow the 
+continuum removal function to be effective in spectral regions with low 
+signal/noise ratio. 
+```{r, eval=FALSE}
+
+#--Step 2.3) - Savitzky-Golay filter of extracted and bleached fractions ----
+library(signal)
+smoothedextracted<-apply(extracted.acoef[,-1],2, FUN=sgolayfilt, 
+                         p = 3, n = 31, m = 0, ts = 1)
+smoothedextracted=data.frame(extracted.acoef[,1],smoothedextracted)
+smoothedextractedpig<-apply(extracpigments[,-1],2, FUN=sgolayfilt, 
+                            p = 3, n = 31, m = 0, ts = 1)
+smoothedextractedpig=data.frame(extracpigments[,1],smoothedextractedpig)
+smoothedbleached<-apply(bleached.acoef[,-1],2, FUN=sgolayfilt, 
+                        p = 3, n = 31, m = 0, ts = 1)
+smoothedbleached=data.frame(bleached.acoef[,1],smoothedbleached)
+smoothedbleachpig<-apply(bleachpigments[,-1],2, FUN=sgolayfilt, 
+                         p = 3, n = 31, m = 0, ts = 1)
+smoothedbleachpig=data.frame(bleachpigments[,1],smoothedbleachpig)
+```
+Correction for the unextracted chl a in  _a_^U^ was performed as:  
+
+ + 1) Red peak isolation 650-750nm in  _a_^U^, with height at peak λ.
+```{r, eval=FALSE}
+#--Step 2.4)  - Correcting the unextracted chl a in bleached pigments ----
+#--Step 2.4.a red peak 650-750nm in bleached pigments, height at peak lambda----
+bleachedcremov650=apply(smoothedbleachpig[-(152:401),-1],
+ 2,FUN=continuum_removal,wl=as.numeric(bleachpigments[-(152:401),1]), upper=F)
+bleachedcremoval650=data.frame(cbind(smoothedbleachpig[-(152:401),1],
+                                     -bleachedcremov650))
+bleachedcremoval650[,1]=extracted.acoef[-(152:401),1]
+names(bleachedcremoval650)[1]=names(extracted.acoef)[1]
+ceros=data.frame(matrix(0L, nrow= (401-151), ncol = ncol(bleachedcremoval650)))  
+names(ceros)=names(bleachedcremoval650)
+ceros[,1]=extracted.acoef[152:401,1]
+cr.bleach.pigments650=rbind(bleachedcremoval650,ceros)
+cr.bleach.pigments650.row=apply(cr.bleach.pigments650, 2, which.max) #peak row 
+cr.bleach.pigments650.lambda=apply(cr.bleach.pigments650, 2, which.max) # peak 
+cr.bleach.pigments650.max=apply(cr.bleach.pigments650, 2, max) #peak height
+cr.bleach.pigments650.peak=data.frame(cr.bleach.pigments650.row,
+  cr.bleach.pigments650.lambda,cr.bleach.pigments650.max)
+#change peak lambda per wavelength
+cr.bleach.pigments650.peak[,2]=extracted.acoef[cr.bleach.pigments650.lambda,1]  
+#if lambda >700, make value 0
+cr.bleach.pigments650.peak[,3] = ifelse(cr.bleach.pigments650.peak[,2]>700,0,cr.bleach.pigments650.peak[,3]) 
+#if lambda >700, make value
+cr.bleach.pigments650.peak[,1] = ifelse(cr.bleach.pigments650.peak[,2]>700,NA,cr.bleach.pigments650.peak[,1]) 
+cr.bleach.pigments650.peak.pr=cr.bleach.pigments650.peak
+#NA bleached pigments
+cr.bleach.pigments650.peak.pr[1,]=names(cr.bleach.pigments650.peak.pr)
+cr.bleach.pigments650.peak.pr=data.frame(t(cr.bleach.pigments650.peak.pr))
+names(cr.bleach.pigments650.peak.pr)=names(filterprops.nox)
+filterprops.nox=rbind(filterprops.nox,cr.bleach.pigments650.peak.pr)
+```
++ 2) Load metoh pure chlorophyll a spectrum from Taniguchi and Lindsey 2017  
+database (<https://doi.org/10.1111/php.13319>)
+```{r, eval=FALSE}
+#---------Step 2.4.b Load metoh pure chlorophyll a spectrum ----  
+#PhotochemCAD 3 Taniguchi et al., 2017 database
+pure.chla=read.delim("CHL008_Chl a, MeOH (Kobayashi, 2013).abs.txt")
+pure.chla.re=prospectr::resample(
+  X=pure.chla$CHL008_Chl.a..MeOH..Kobayashi..2013..abs, 
+ wav=pure.chla$Wavelength..nm., new.wav=extracted.acoef$Wave.length, 
+ interpol = "linear")
+pure.chla.re[is.na(pure.chla.re)]<-0
+pure.chla=data.frame(nm=extracted.acoef$Wave.length,abs=pure.chla.re)
+pure.chla.df=extracted.acoef
+pure.chla.df[,-1]<-pure.chla$abs
+#max at 135, 666 nm
+
+pure.chla.cr=apply(pure.chla.df[pure.chla.df[,1]>650&pure.chla.df[,1]<750 ,-1],
+ 2,FUN=continuum_removal,wl=
+as.numeric(pure.chla.df[pure.chla.df[,1]>650&pure.chla.df[,1]<750 ,1]), upper=F)
+pure.chla.cr=data.frame(
+cbind(pure.chla.df[pure.chla.df[,1]>650&pure.chla.df[,1]<750 ,1],-pure.chla.cr))
+zeros=data.frame(
+  matrix(0L, nrow= nrow(pure.chla.df), ncol = ncol(pure.chla.df)))
+names(zeros)=names(pure.chla.df)
+zeros[,1]=pure.chla.df[,1]
+zeros[match(pure.chla.cr[,1],zeros[,1]),]<-pure.chla.cr
+pure.chla.cr<-zeros
+pure.chla.cr.factor=data.frame(apply(pure.chla.cr,2,FUN = max)/
+                                 apply(pure.chla.df,2,FUN = max))[2,1]
+```
++ 3) Shift pure chla spectra and multiply peak height for peak _a_^U^.
+```{r, eval=FALSE}
+#--Step 2.4.c--Shift chla spectra and multiply peak for bleached peak height----
+#multiply the extracted pigments for the ratio of red peaks extracted/bleached
+#shift the extracted pigments for the difference in peaks extracted-bleached
+lambdashift <- function(x, n){ if (is.na(n)) {rep(NA, length(x))} 
+  else if (n>0){ c(rep(0, n),x[(seq(length(x)-n))]) }
+  else if (n<0) {c(x[-(seq(-n))],rep(0, -n)) }
+  else  {(x) }}
+un.extracpigments.new=data.frame((mapply(function(x,n) x*n, x=(pure.chla.df/pure.chla.cr.factor),n=(cr.bleach.pigments650.peak[,3]))))
+shifted.un.extracpigments.new=data.frame(mapply(FUN=lambdashift,
+                                                (un.extracpigments.new),n=(cr.bleach.pigments650.peak[,1]-135)))
+shifted.un.extracpigments.new[,1]=extracpigments[,1]
+shifted.un.extracpigments.new=apply(shifted.un.extracpigments.new,2,
+ FUN= function (x) if (sum(!is.na(x))==0) {rep(0,length(x))} else {x})
+```
+Subtract unextracted chlorophyll a  from bleached pigments spectra.  
+```{r, eval=FALSE}
+#--Step 2.5 -Subtract unextracted chlorophyll from bleached pigments spectra----
+true.bleached.new=(smoothedbleachpig-shifted.un.extracpigments.new)
+true.bleached.new[,1]=extracpigments[,1]
+```
+Continuum removal only on phycobilins absorbing spectral range.  
+```{r, eval=FALSE}
+#--Step 2.6 - Null point correction and continuum removal  on phycobilins ----
+#smoothing filter
+library(signal)
+#continuum removal
+cr.true.bleached.new=apply(true.bleached.new[51:351,-1],2,
+ FUN=continuum_removal,wl=as.numeric(true.bleached.new[51:351,1]), upper=F)
+napfree.bleached.new=data.frame(cbind(true.bleached.new[51:351,1],
+                                      -cr.true.bleached.new))
+ceros.a=data.frame(matrix(0L, nrow= (51-1), ncol = ncol(true.bleached.new)))  
+ceros.b=data.frame(matrix(0L, nrow= (401-351), ncol = ncol(true.bleached.new)))  
+names(ceros.a)=c("V1",names(true.bleached.new)[-1])
+names(ceros.b)=c("V1",names(true.bleached.new)[-1])
+ceros.a[,1]=true.bleached.new[1:50,1];ceros.b[,1]=true.bleached.new[352:401,1]
+napfree.bleached.new=rbind(ceros.a,napfree.bleached.new,ceros.b)#yesssssss
+# changed smoothed.true.bleached[,-1] for true.bleached[,-1]
+bleached.nap.new=data.frame(cbind(true.bleached.new[,1],
+                                  true.bleached.new[,-1]+cr.true.bleached.new))
+#2021.04.18 reverse continuum removal only negatively curved  spectra
+true.bleached.new.rev=t(t(as.matrix(true.bleached.new))-
+                          apply(true.bleached.new[1:50,],2,FUN=mean))
+true.bleached.new.rev[true.bleached.new.rev<0] <-0
+napfree.bleached.new.rev=rbind(ceros.a[,],
+cbind(true.bleached.new[51:351,1],-apply(true.bleached.new.rev[51:351,-1],2,
+ FUN=continuum_removal,wl=as.numeric(true.bleached.new[51:351,1]), upper=F)),
+ ceros.b[,])
+phycobilins=napfree.bleached.new.rev #V2, better
+library(tidyr);library(dplyr);library(magrittr);library(tibble)
+```
+Recalculate final fractions
+```{r, eval=FALSE}
+#----- Step 2.8 ---- Final fractions calculations ----
+#---------Step 2.8.a---- aNAP and aPhy calculations ----
+NAP=extracted.acoef[,]-shifted.un.extracpigments.new[,]-phycobilins[,]
+PIGMENTS=wholepabs.acoef[,]-NAP
+#---------Step 2.8.b---- Whole PABS 750-800 nm transfer to NAP ----
+NIR=as.data.frame(t(apply(PIGMENTS[1:50,],2,FUN=mean)))
+NIR[1:nrow(PIGMENTS),]=NIR[1,]
+FINAL.PIGMENTS=PIGMENTS[,]-NIR;FINAL.PIGMENTS[,1]=extracted.acoef[,1]
+FINAL.NAP=NAP[,]+NIR;FINAL.NAP[,1]=extracted.acoef[,1]
+PHYCOBILINS=phycobilins[,]
+#------Step 2.9 ---- Export ----
+write.csv(FINAL.NAP,"FINAL.NAP.csv")
+write.csv(FINAL.PIGMENTS,"FINAL.PIGMENTS.csv")
+write.csv(PHYCOBILINS,"PHYCOBILINS.csv")
+
+```
+
+## 3	PREPROCESSING AT THE LAKE LEVEL
+
+* The lake means and coefficient of variation of the different fractions 
+are calculated for each lake ( _a_^Corr^Phy corrected pigments including 
+phycobilins, _a_^Corr^NAP corrected NAP, and _a_^PB^ only the estimated 
+phycobilins) 
+
+First, load the matrices and filter properties
+``` {r, eval=FALSE}
+#---Step 3 ---- Preprocessing per lake-----
+library(tidyr);library(dplyr);library(magrittr);library(tibble)
+if (!exists("wholepabs.acoef") ) {wholepabs.acoef=
+  read.csv("LP.wholepabs.acoef.csv")[,-1]
+} else {wholepabs.acoef.uv=wholepabs.acoef}
+if (!exists("FINAL.NAP") ) {FINAL.NAP=
+  read.csv("FINAL.NAP.csv")[,-1]} 
+  if( !exists("FINAL.PIGMENTS") )
+  {FINAL.PIGMENTS=read.csv("FINAL.PIGMENTS.csv")[,-1]} 
+if( !exists("PHYCOBILINS") )
+{PHYCOBILINS=read.csv("PHYCOBILINS.csv")[,-1]}
+if( !exists("filterprops.nox") )
+  {filterprops.nox=read.csv("LP.filterprops.nox.csv")[,-1]}
+
+true.wholepabs=wholepabs.acoef
+true.NAP=FINAL.NAP
+true.pigments=FINAL.PIGMENTS
+true.phycobilins=PHYCOBILINS
+
+names(true.phycobilins)[1]=names(wholepabs.acoef)[1]
+rownames(filterprops.nox)=filterprops.nox[,1]
+filterprops.nox.perlake=filterprops.nox%>%t%>%as.data.frame%>%
+  group_by(lake_id)%>%summarise_all(funs(paste),collapse="|")%>%t%>%
+  as.data.frame
+filterprops.nox.perlake=filterprops.nox.perlake[,
+  filterprops.nox.perlake[1,]!="lake_id"]
+``` 
+Lake means for total particulate absorption.
+``` {r, eval=FALSE}
+#------Step 3.1 ---- PABS Average per lake-----
+true.wholepabs=rbind(as.matrix(filterprops.nox)[2,],true.wholepabs)
+rownames(true.wholepabs)<-NULL
+true.wholepabs.perlake=true.wholepabs%>%column_to_rownames("Wave.length")%>%
+  t%>%as.data.frame%>%mutate_at(vars(-lake_id), as.numeric)%>%group_by(lake_id)%>%summarise_all(funs(mean))%>%t%>%as.data.frame
+names(true.wholepabs.perlake)=true.wholepabs.perlake[1,]
+true.wholepabs.perlake=true.wholepabs.perlake[-1,]
+true.wholepabs.perlake=cbind(true.wholepabs[-1,1],true.wholepabs.perlake)
+true.wholepabs.perlake=apply(true.wholepabs.perlake,2,FUN=as.numeric)
+``` 
+Lake means for _a_^Corr^Phy corrected pigments.
+``` {r, eval=FALSE}
+#------Step 3.2 ---- NAP Average per lake-----
+true.NAP=rbind(as.matrix(filterprops.nox)[2,],true.NAP)
+rownames(true.NAP)<-NULL
+true.NAP.perlake=true.NAP%>%column_to_rownames("Wave.length")%>%t%>%
+  as.data.frame%>%mutate_at(vars(-lake_id), as.numeric)%>%group_by(lake_id)%>%summarise_all(funs(mean))%>%t%>%as.data.frame
+names(true.NAP.perlake)=true.NAP.perlake[1,]
+true.NAP.perlake=true.NAP.perlake[-1,]
+true.NAP.perlake=cbind(true.NAP[-1,1],true.NAP.perlake)
+true.NAP.perlake=apply(true.NAP.perlake,2,FUN=as.numeric)
+``` 
+Lake means for _a_^Corr^NAP corrected non algal material.
+``` {r, eval=FALSE}
+#------Step 3.3 ---- Pigments Average per lake-----
+true.pigments=rbind(as.matrix(filterprops.nox)[2,],true.pigments)
+rownames(true.pigments)<-NULL
+true.pigments.perlake=true.pigments%>%column_to_rownames("Wave.length")%>%
+  t%>%as.data.frame%>%mutate_at(vars(-lake_id), as.numeric)%>%group_by(lake_id)%>%summarise_all(funs(mean))%>%t%>%as.data.frame
+names(true.pigments.perlake)=true.pigments.perlake[1,]
+true.pigments.perlake=true.pigments.perlake[-1,]
+true.pigments.perlake=cbind(true.pigments[-1,1],true.pigments.perlake)
+true.pigments.perlake=apply(true.pigments.perlake,2,FUN=as.numeric)
+```
+Lake means for  _a_^PB^ (only the estimated phycobilins) 
+``` {r, eval=FALSE}
+#------Step 3.4 ---- Phycobilins Average per lake-----
+true.phycobilins=rbind(as.matrix(filterprops.nox)[2,],true.phycobilins)
+rownames(true.phycobilins)<-NULL
+true.phycobilins.perlake=true.phycobilins%>%column_to_rownames("Wave.length")%>%
+  t%>%as.data.frame%>%mutate_at(vars(-lake_id), as.numeric)%>%group_by(lake_id)%>%summarise_all(funs(mean))%>%t%>%as.data.frame
+names(true.phycobilins.perlake)=true.phycobilins.perlake[1,]
+true.phycobilins.perlake=true.phycobilins.perlake[-1,]
+true.phycobilins.perlake=cbind(true.phycobilins[-1,1],true.phycobilins.perlake)
+true.phycobilins.perlake=apply(true.phycobilins.perlake,2,FUN=as.numeric)
+```
+The coefficient of variation is calculated for each fraction
+``` {r, eval=FALSE}
+#------Step 3.5 ---- Standard deviations per lake-----
+true.wholepabs.perlake.sd=true.wholepabs%>%column_to_rownames("Wave.length")%>%
+  t%>%as.data.frame%>%mutate_at(vars(-lake_id), as.numeric)%>%group_by(lake_id)%>%summarise_all(funs(sd))%>%t%>%as.data.frame
+names(true.wholepabs.perlake.sd)=true.wholepabs.perlake.sd[1,]
+true.wholepabs.perlake.sd=true.wholepabs.perlake.sd[-1,]
+true.wholepabs.perlake.sd=cbind(true.wholepabs[-1,1],true.wholepabs.perlake.sd)
+true.wholepabs.perlake.sd=apply(true.wholepabs.perlake.sd,2,FUN=as.numeric)
+#
+true.NAP.perlake.sd=true.NAP%>%column_to_rownames("Wave.length")%>%t%>%
+  as.data.frame%>%mutate_at(vars(-lake_id), as.numeric)%>%group_by(lake_id)%>%summarise_all(funs(sd))%>%t%>%as.data.frame
+names(true.NAP.perlake.sd)=true.NAP.perlake.sd[1,]
+true.NAP.perlake.sd=true.NAP.perlake.sd[-1,]
+true.NAP.perlake.sd=cbind(true.NAP[-1,1],true.NAP.perlake.sd)
+true.NAP.perlake.sd=apply(true.NAP.perlake.sd,2,FUN=as.numeric)
+#
+true.pigments.perlake.sd=true.pigments%>%column_to_rownames("Wave.length")%>%
+  t%>%as.data.frame%>%mutate_at(vars(-lake_id), as.numeric)%>%group_by(lake_id)%>%summarise_all(funs(sd))%>%t%>%as.data.frame
+names(true.pigments.perlake.sd)=true.pigments.perlake.sd[1,]
+true.pigments.perlake.sd=true.pigments.perlake.sd[-1,]
+true.pigments.perlake.sd=cbind(true.pigments[-1,1],true.pigments.perlake.sd)
+true.pigments.perlake.sd=apply(true.pigments.perlake.sd,2,FUN=as.numeric)
+#
+true.phycobilins.perlake.sd=true.phycobilins%>%
+  column_to_rownames("Wave.length")%>%
+  t%>%as.data.frame%>%mutate_at(vars(-lake_id), as.numeric)%>%group_by(lake_id)%>%summarise_all(funs(sd))%>%t%>%as.data.frame
+names(true.phycobilins.perlake.sd)=true.phycobilins.perlake.sd[1,]
+true.phycobilins.perlake.sd=true.phycobilins.perlake.sd[-1,]
+true.phycobilins.perlake.sd=cbind(true.phycobilins[-1,1],
+                                  true.phycobilins.perlake.sd)
+true.phycobilins.perlake.sd=apply(true.phycobilins.perlake.sd,2,FUN=as.numeric)
+#------Step 3.6 ---- Coef of variation per lake-----
+true.wholepabs.perlake.cvar=100*true.wholepabs.perlake.sd/true.wholepabs.perlake
+true.NAP.perlake.cvar=100*true.NAP.perlake.sd/true.NAP.perlake
+true.pigments.perlake.cvar=100*true.pigments.perlake.sd/
+  true.pigments.perlake
+true.phycobilins.perlake.cvar=100*true.phycobilins.perlake.sd/
+  true.phycobilins.perlake
+
+```
+Export the calculated datasets
+``` {r, eval=FALSE}
+#------Step 3.7 ---- Export-----
+write.csv(true.wholepabs.perlake,"true.wholepabs.perlake.csv")
+write.csv(true.NAP.perlake,"true.NAP.perlake.csv")
+write.csv(true.pigments.perlake,"true.pigments.perlake.csv")
+write.csv(true.phycobilins.perlake,"true.phycobilins.perlake.csv")
+
+write.csv(true.wholepabs.perlake.cvar,"true.wholepabs.perlake.cvar.csv")
+write.csv(true.NAP.perlake.cvar,"true.NAP.perlake.cvar.csv")
+write.csv(true.pigments.perlake.cvar,"true.pigments.perlake.cvar.csv")
+write.csv(true.phycobilins.perlake.cvar,"true.phycobilins.perlake.cvar.csv")
+
+
+```
